@@ -486,6 +486,24 @@ r_stack <- stack(r_mask,r_fill)
 plot(r_stack)
 ```
   
+Final example plotting and hillshade raster in tmap. This might look a little bit cumbersome with due respect to QGIS.
+```{r, fig.cap=c("Fig.24 Hillshade on plot()","Fig.25 Hillshade and DEM on tmap")}
+#terrain compute slope, aspect and other characteristics of the dem they are both output that are fed to hillShade()
+r_slope  <- terrain(r_crop, opt=c("slope"))
+r_Aspect <- terrain(r_crop, opt=c("aspect"))
+#Creates hill shade layer
+r_hill  <- hillShade(slope = r_slope,aspect = r_Aspect,angle = 40,direction = 270)
+#Basic plot
+plot(r_hill, col=grey(0:100/100), legend=FALSE, main='venezia')
+#Using tmap
+tm_shape(r_hill) +
+  tm_raster(palette = gray(0:100 / 100), n = 100, legend.show = FALSE)  +
+  tm_shape(r_crop) +
+  tm_raster(alpha = 0.6, palette = terrain.colors(30),
+            legend.show = FALSE)
+
+```
+  
 Like any other type of data, raster can be written to local memory with `writeRaster()` passing as necessary arguments the name of the object and the name of the file with the extension.
 ```{r, eval = FALSE}
 #writeraster
