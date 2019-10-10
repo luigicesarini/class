@@ -1,0 +1,501 @@
+---
+title: "Using packages in R: <br/> `dplyr`, `ggplot2`, `sf`, `tmap` and `raster`"  
+subtitle: Hydrological Risk
+author: Luigi Cesarini
+output:
+  prettydoc::html_pretty:
+    toc: true  
+    theme: cayman
+    highlight: github
+---
+
+<style>
+.page-header{
+color:black;
+background:url(https://www.r-project.org/Rlogo.png) left no-repeat,url("logo-iuss.jpg") right no-repeat;
+background-size:200px 155px ,246.33px 112.67px;
+background-color:#D3F6FC;
+background-origin: content-box;
+
+}
+p.caption{
+color:grey;
+font-size:15px;
+font-style:italic;
+text-align:center;
+}
+pre.sourceCode.r {
+    background-color: #F1D3FC;
+}
+p.inset {
+border-style:outset;
+border-color:black;
+border-width:thin;
+text-align: center;
+color:red;
+background-color:#F8D1CC;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=TRUE,message = FALSE,comment = NA, fig.align = 'center', warning=FALSE)
+knitr::opts_knit$set(root.dir = "G:\\Il mio Drive\\Lecture Hydrological risk")
+```
+<p class = "inset"> **Disclaimer:** light purple boxes display the R code, the light blue ones the output </p> 
+
+# Discovering the `tidyverse`
+
+The first part of the code is dedicated to preliminary operation: setting the working directory for the project, check what is inside the folder, load and inspect the data with the basic functions provided by R.  
+  
+  
+```{r, eval=FALSE}
+my_path <- "Insert the path where the 'Exercise' folder I gave you is saved"
+setwd(my_path)
+```
+  
+`list.files()` return all the files with extension in the specified directory. Same results is obtained with `dir()`, on the other if you want to obtain all the directory in a specific path you might want to use `list.dir`  
+ 
+```{r}
+#return the entire list of files in the folder specified "." refers to the working directory, you can 
+list.files(".")
+```
+  
+The unzip function is not relevant to the success of this script but it might still be useful to know. The function will extract the files from a zip archive and put it into a folder of your choice.  
+
+```{r, eval=FALSE}
+unzip("new-york-city-airbnb-open-data.zip",list=TRUE)
+```
+    
+The data are loaded with the function provided by the base package of R.  
+
+```{r}
+#load csv
+ny_airbnb <- read.csv(".\\Exercise\\Data\\AB_NYC_2019.csv")
+#explore dataset
+dim(ny_airbnb)
+head(ny_airbnb)
+str(ny_airbnb)
+#write a simple function that return information on dataframe. Using the syntax needed for fucntions, firts we check is the argument passed through is a dataframe. Then, we bind the output that we want the function to return into a list
+info <- function(x){
+  if (is.data.frame(x) == FALSE) {
+      print("Error: you are not using a data.frame")
+  }else{
+      info_df <- list(dimension=dim(x),top=head(x),bottom=tail(x))
+    }
+  return(info_df)
+}
+
+info(ny_airbnb)
+```
+
+The dataset used in the first part of this tutorial is Airbnb listings and metrics in NYC, NY, USA (2019) [More information here](https://www.kaggle.com/dgomonov/new-york-city-airbnb-open-data)
+
+## `dplyr`
+
+This package provides great tools for data manipulation, especially when dealing with data frames. Its use spreaded thanks to a specific and easy to understand grammar (verbs) aimed at data manipulation and to the fast performance due to the exploitation of C++.  
+In the following chunk I'll introduce the main verbs of dplyr and comparing its grammar with the normal syntax that one would use with basic indexing.  
+(The `dplyr::` is used due to conflict with function name used in multiple packages).
+
+```{r}
+#dplyr----
+library(dplyr)
+# select()	select columns
+# filter()	filter rows
+# arrange()	re-order or arrange rows
+# mutate()	create new columns
+# summarise()	summarise values
+# group_by()	allows for group operations in the “split-apply-combine” concept
+
+# ends_with() = Select columns that end with a character string
+# contains() = Select columns that contain a character string
+# matches() = Select columns that match a regular expression
+# one_of() = Select columns names that are from a group of names
+# everything() = Select all column
+# last_col() = Select last column also with offset
+```
+ 
+#### The pipe operator `%>%`    
+The pipe operator is used to emphasise a sequence of actions you want to apply to one primary object. This operator make it possible to keep the code well-ordered and to pass the object to several functions without creating _"nested"_ code (more on this later in the code).  
+The pipe operator basically takes the object at the beginning of the line, usually a dataframe, and __pass__ the object through the function at the right the operator, creating this way a literal pipeline of code. 
+  
+  
+  
+The first functions we're going to look at are `select()`, `slice()` and `filter()`. The first function subset the data based on the column you specify. The columns can be chosen the same way as with base subsetting plus some interesting way provided from the package `tidyselect`. 
+`slice()` is the equivalent of select but for rows.
+`filter()` instead, subset the data row-wise where the conditions given for the filtering are true, that means it subset evaluating the result of a condition.  
+
+```{r}
+#Select
+ny <- ny_airbnb[,1:10]                #normal indexing
+ny <- dplyr::select(ny_airbnb,1:10)          #dplyr   
+ny <- ny_airbnb %>% dplyr::select(.,1:10)    #dplyr
+```
+  
+```{r}
+#slice
+ny <- ny_airbnb[1:5,]                #normal indexing
+ny <- slice(ny_airbnb,1:5)           #dplyr
+ny <- ny_airbnb %>% slice(1:5)       #dplyr
+```
+    
+
+```{r}
+#filter
+ny <- ny_airbnb[ny_airbnb$host_name == "Jessica",]     #normal indexing
+ny <- filter(ny_airbnb,host_name=="Jessica")           #dplyr
+ny <- ny_airbnb %>% filter(host_name=="Jessica")       #dplyr
+```
+  
+`group_by` and `summarise` go hand-in-hand. The former takes a dataframe (or table) and creates a new table based on groups defined by variables. Let's take our dataset, we have variables such as neighbourhood and host_name that repeat some values several time. Let's say I want to perform an analysis per neighbourhood rather than per house, `group_by` allows us to create a new dataframe grouped by neighbourhood.  
+`summarise` adds another layer. It collapses each group into a single row summary, applying an aggregating or summary function to each group. 
+Let's assume I want to obtain how many people, amid the host of New York, share the same name. Without using dplyr I'd do something like this:
+
+```{r}
+#group_by & summarise
+name <- unique(ny_airbnb$host_name)                         #Find the unique names in the column
+x <- data.frame(name=numeric(),number=numeric())            # Initialize dataframe that will store the information
+for (i in 1:length(name)) {                                 #Loop where at each iteration I compute how many i-th name are in the dataset
+  x[i,"name"]   <- as.character(name[i])
+  x[i,"number"] <- length(ny_airbnb$host_name[ny_airbnb$host_name == name[i]])
+}
+head(x[order(x$number,decreasing = T),],2)
+```
+With dplyr would look something like this:  
+```{r}
+ny <- ny_airbnb %>% 
+          group_by(host_name) %>% 
+          dplyr::summarise(n=n())
+
+head(ny[order(ny$n,decreasing = T),],2)
+```
+At the end the result is the same but besides the aesthetics of the code it's easy to verify the difference in computing speed of the two methods (check `system.time()` function or `rbenchmark` package) .  
+  
+  
+Now, I want to find the count of the names for each neighbourhood and filter out those name that appear less than 10 times to cancel the noise. Here is the "nested" effect previoulsy mentioned neglecting the use of the pipe operator.  
+
+```{r}
+ny <- filter(dplyr::summarise(group_by(ny_airbnb,host_name,neighbourhood),n=n()),n>10) 
+head(ny,2)
+```
+Using the Pipe operator:  
+  
+```{r}
+ny <- ny_airbnb %>% 
+        group_by(host_name,neighbourhood) %>% 
+        dplyr::summarise(n=n()) %>% 
+        filter(n>10)
+  
+head(ny,2)
+```
+  
+  
+A final example comprehensive of all the functions seen and also those provided by `tidyselect`. Let's find out which are the more expensive neighbourhood in NY. I want the max,min and avg price the mean number of reviews and finally I want to add a column (`mutate`) assigning the ranking of each district and finally put them in order (`arrange`) based on the costliness of the hosting facilities.
+```{r}
+ny <- ny_airbnb %>% 
+        dplyr::select(.,starts_with("n"),starts_with("p"),starts_with("calcula")) %>% filter(price > 100) %>%
+        group_by(neighbourhood) %>%        
+        summarise(expensive=max(price),cheap=min(price),avg_price=mean(price),
+                  num_rev=mean(number_of_reviews)) %>% 
+        arrange(desc(expensive)) %>% 
+        mutate(ranking=seq(1:length(expensive))) 
+
+head(ny,2)
+```
+## `ggplot2`  
+  
+ggplot2 is a package used for data visualization based on _The Grammar of Graphics_. Every plot starts with `ggplot()` to which at least a dataframe is passed and creates a ggplot object. You then add on layers, scales, faceting specifications and much more through a `+`.  
+Either in `ggplot()` or the layers (e.g. `geom_point()`)one must specify the aesthetics, `aes()`, which are the things that you can see.  
+As for dplyr a comparison between ggplot2 and basic plotting tools is carried out to highlight the differences and the advantages.  
+In this part of the tutorial will be used also the cars dataset provided by R which contains two columns: speed of cars and distance needed to stop. (Just for completeness: data are from the 1920s)
+```{r}
+#ggplot2----
+library(ggplot2)
+#ggplot2 starts with the same syntax that creates a ggplot object and then you add elements to fine tune the plot
+#Used with other packages can also create interactive plot
+```
+  
+I want to see the two variables in a scatterplot and I'd also expect a decent correlation between the two variables, therefore I want ot fit also a linear regression through the data.  
+`lm` fit a linear model to the data given a formula. In this case we want the model to predict the distance given the speed.  
+
+```{r, fig.cap=c("Fig.1 Scatterplot with R basic function")}
+#basic plot
+plot(cars$speed,cars$dist, col="red",pch=19,cex=2,type="p", main = "This is a scatterplot",
+     xlim = c(0,30))
+points(10,60,col="blue",pch=19,cex=5)  #this function adds points to wherever I want it
+# abline(h=60)
+# abline(v=10)
+abline(a = lm(formula = dist ~ speed, data = cars)$coeff[1],
+       b = lm(formula = dist ~ speed, data = cars)$coeff[2], col ="orange") 
+```
+
+`lm(formula = dist ~ speed, data = cars)$coeff[1]` this is equivalent to:
+1. fit the linear model
+2. extract one-by-one the coefficients
+
+```{r}
+lm_fit <- lm(formula = dist ~ speed, data = cars)
+lm_fit$coefficient
+lm_fit$coefficient[1]
+```
+ggplot2 allows to save the plot into a variable that you can later use to add more layer  
+
+```{r, fig.cap=c("Fig.2 Scatterplot with ggplot2")}
+
+#ggplot
+p1 <- ggplot(data = cars)+
+  theme_bw()+
+  theme(axis.title = element_text(size = 16, face = "bold"), #this are customization parameter that we could easily neglect
+        axis.text = element_text(size = 14),
+        text= element_text(face="bold"),
+        plot.title = element_text(color="Dodgerblue",size=17),
+        strip.text = element_text(size = 14, colour ="darkgreen",hjust = 0),
+        strip.background = element_rect(fill = "wheat")  )
+
+#add to the base ggplot object the points of the two variables with geom_point and the linear regression with geom_smooth, which will display also the confidence interval
+p1+geom_point(aes(x=speed,y=dist))+geom_smooth(aes(x=speed,y=dist),method = "lm")
+
+```
+  
+Going back to the NY airbnb dataset, let's make some histogram and boxplot. I'm curious about the distribution of the price for the three types of room listed: 
+
+* Private Room
+* Shared Room
+* Entire home/apartment  
+
+```{r, fig.cap=c("Fig.3 Histogram with R basic function")}
+#Filter data holding host with at least a review and with a price per house of more than 150$
+df_ny <- ny_airbnb %>% filter(price >150,number_of_reviews >= 1)
+
+#basic plotting
+par(mfrow=c(2,2)) #This is needed to plot the 3 histograms on the same"page". It divides the plotting device into a grid with 2 rows and 2 columns
+hist(df_ny$price[df_ny$room_type == "Private room"],xlab="Price in dollar",breaks = seq(0,max(df_ny$price),100),main = "This is an histogram",col = "red")
+hist(df_ny$price[df_ny$room_type == "Shared room"], xlim = c(0,6000),breaks = seq(0,max(df_ny$price),100),main = "This is an histogram",col = "blue")
+hist(df_ny$price[df_ny$room_type == "Entire home/apt"],breaks = seq(0,max(df_ny$price),100),main = "This is an histogram",col = "green")
+#dev.off() #this is used to return to default plotting configuration that was changed previously with par()
+```
+  
+Using ggplot, I start a ggplot object providing the dataset and then I can add as much layer and customization as I want.  
+  
+```{r,fig.cap=c("Fig.4 Basic Histogram with ggplot2","Fig.5 Faceted histogram with further customization")}
+#This is the most basic histogram, with default binwidth = 30 and no customization whatsoever
+ggplot(data = df_ny)+geom_histogram(aes(x=price))
+
+#Add some features to make it nice. theme_bw is one of the option for theme provided by ggplot, in theme you can customize each little piece of the plot 
+p1 <- ggplot(data = df_ny)+
+        theme_bw()+
+        theme(axis.title = element_text(size = 16, face = "bold"),                  #decide size and makes axis name bold
+              axis.text = element_text(size = 14),                                  #decide size axis text
+              text= element_text(face="bold"),
+              plot.title = element_text(color="Dodgerblue",size=17),                #Customize title of the plot
+              strip.text = element_text(size = 14, colour ="darkgreen",hjust = 0),  #Customize the title of each panel containing the plot
+              strip.background = element_rect(fill = "wheat"))                      #Customize color of the panel containing title for each plot
+
+       
+p1+geom_histogram(aes(x=price,fill=room_type),binwidth = 10)+
+      facet_wrap(facets = vars(room_type),nrow = 2,scales = "free")+
+      labs(title = "This is a histogram",subtitle = "Analysis on Airbnb data in NY",
+           x="Price per night in $", y="N° of rented house", fill="Type of room/apt")
+```
+  
+Boxplots behave the same way  
+
+```{r,fig.cap=c("Fig.6 boxplot with R basic function","Fig.7 boxplot with ggplot2")}
+
+#basic boxplot
+boxplot(df_ny$price[df_ny$room_type == "Private room"],main = "This is a boxplot",colour = "red", width=0.1)
+
+#ggplot boxplot
+p1+geom_boxplot(aes(y=price,col=room_type),outlier.shape = "H",outlier.size = 3,notch = FALSE,notchwidth = 0.5 )+
+      # facet_wrap(facets = vars(room_type),nrow = 2,scales = "free")+
+      labs(title = "This is a boxplot",subtitle = "Analysis on Airbnb data in NY",
+           x="", y="Price per night in $", col="Type of room/apt")+
+      theme(axis.text.x = element_blank())
+```
+  
+  
+## `sf`  
+  
+This pakcage offers the possibility to combine geometry of simple feature object with dasets containing attributes in a single object. Basically with `sf` we can manipulates spatial data that have attached data with them. It is the evolution of the `sp` package with improved speed and the ability to use the pipe operator.  
+Methods for sf object are:  
+```{r, include=FALSE}
+library(sf)
+methods(class = "sf")
+```
+  
+  
+I'm going to illustrate some of this function. Mainly creating a `sf` object from matrix of coordinates, change CRS to an `sf` object, read external vector data, and some interaction between `sf` object.  
+The NY Airbnb dataset has two columns with latitude and longitude let's try to create a simple feature object with attached the data. The reference system of the coordinates is WGS84.  
+
+
+```{r, error=TRUE}
+#sf----
+library(sf)
+#Creates an sf object with attached the data about Airbnb, using the coordinates provided in the columns and specifyin the CRS
+sf_ny <- st_as_sf(df_ny,crs=4326,coords = c("longitude","latitude"))
+head(sf_ny,3)
+#st_transfomr allows us to change the reference system of the object
+sf_ny_2 <- st_transform(sf_ny,3857)
+head(sf_ny_2,3)
+#Trying to perform an intersection between two layer an error is returned since the 2 crs are different
+st_intersection(sf_ny,sf_ny_2)
+```
+  
+External data are loaded with the function `st_read()` specifying the name of the layer you want to load and the folder that contains it. When plotting `sf` objects if you don't specify the geometry column you will get a plot for each attribute in the dataframe, i.e. 1 plot for each column. Try the command `plot(usa)`.  
+Now will load the shapefile of the United States with the border of the 50 states and the shapefile of Italy at the region detail (both polygon simple feature). Also, will load the shapefile of the capital of each province in Italy and extract the centroid from the municipality of each city in order to get a point object. 
+
+```{r,warning=FALSE, fig.cap=c("Fig.8 Map of the United States at the federal state level","Fig.9 Map of Lombardia and Veneto","Fig.10 Example of st_union() merging the border between Lomabardia and Veneto","Fig.11 Municipality extension of the provincial capitals","Fig.12 Map of the etracted centroids"), fig.margin = TRUE}
+usa <- st_read(dsn = ".\\Exercise\\Shp",layer = "gadm36_USA_1")
+plot(usa$geometry)
+
+italy <- st_read(".\\Exercise\\Shp\\Italy_shapefile\\gadm36_ITA_1.shp")
+#Plot of Lombardia and Veneto
+plot((italy %>% filter(NAME_1 %in% c("Lombardia","Veneto")))$geometry)
+#st_union merges two geometries. Here I merge Lombardia and Veneto
+vl <- st_union(italy %>% filter(NAME_1 %in% c("Lombardia","Veneto")))
+plot(vl)
+
+#load capoluoghi
+cap <- st_read(".\\Exercise\\Shp\\Italy_shapefile\\blog_post_capoluoghi\\capoluoghi_provincia_2019.shp")
+plot(cap$geometry)
+#Extract centroid
+cap_point <- cap %>% st_centroid()
+plot(cap_point$geometry)
+```
+  
+## `tmap`  
+  
+It is a map-making package, it has a concise syntax and is based on the Grammar of graphics just like ggplot2. It is capable to generate static and interactive map and can be fed with several type of spatial data. Just like ggplot2 there is a basic building block,  `tm_shape()`, which creates a tmap-element that defines input data. This basic block is followed by one or more layer used to customize the spatial data object provided in the initial block. These layers are add with a `+`. Next, I'm going to plot some feature of the Airbnb dataset.  
+
+
+```{r, fig.width=7.3, fig.cap="Fig. 13 Basic static map"}
+#tmap----
+library(tmap)
+tmap_mode("plot")    #this command dictates if you want a static map "plot" or a interactive map ("view")
+#This is a basic plot I provide the spatial data to tm_shape() and I tell tmap to plot the houses as points
+tm_shape(sf_ny_2)+
+  tm_dots()
+```
+  
+  
+```{r, fig.width=7.3, fig.cap="Fig. 14 Basic static map with different symbols for each point"}
+#This is a basic plot I provide the spatial data to tm_shape() and I tell tmap to plot the houses as points
+tm_shape(sf_ny_2)+
+  tm_symbols(shape = 25)
+```
+  
+In the interactive mode `tm_basemap()` allows us to plot our spatial data on tiles obtained from a provider.     
+ 
+```{r, fig.width=7.3, fig.cap="Fig. 15 Interactive map of NY Airbnb hosting facilities",layout='l-body-outset'}
+#The tmap package works a little bit as ggplot ypu build your map piece by piece starting from a base"tmap_element" 
+tmap_mode("view")
+tm_basemap(server = leaflet::providers$OpenStreetMap)+
+  tm_shape(sf_ny_2)+
+  tm_dots(col="room_type",alpha = 0.6, popup.vars = c("price"))+
+  tm_layout(legend.show = FALSE)
+```
+
+Some options are not available in the static mode. For example, `popup.vars` gives us the chance to select which variables are shown in the clickable popup. 
+  
+```{r, fig.width=7.3, fig.cap="Fig. 16 Basic static map of NY Airbnb hosting facilities with markers"}
+tmap_mode("plot")
+tm_shape(shp = (italy %>% mutate(.,population = rnorm(20,mean = 3e6,sd = 2e6))) )+ 
+  tm_polygons(alpha=0.5,col="population", popup.vars=c("NAME_1","population"),palette="viridis", title = "Popolazione")+
+  tm_layout(legend.outside = TRUE, legend.title.color = "Dodgerblue",
+            title = "Region breakdown of Italy", title.position = c("LEFT","TOP"))+
+  tm_shape(st_transform(cap,4326))+
+  tm_markers(clustering = FALSE, popup.vars="comune") 
+  
+```
+
+## `raster`  
+  
+This package provides tool for creating, manipulating, reading and writing raster spatial data. In this last part of the tutorial I'll be workink with raster layer of Italy. This are data from the Shuttle Radar Topography Mission sampled at 3 arc-seconds that means with a resolution of about 90m (each pixel is 90 meters by 90 meters). `raster()` reads the raster layer provided 
+```{r, fig.cap=c("Fig.17 Raster map of Italy","Fig.18 Plot of the extent, frame, that contains the raster","","")}  
+  
+#raster----
+library(raster)
+#load the 4 block
+r1 <- raster(".\\Exercise\\Dem\\srtm_38_03.tif")
+r2 <- raster(".\\Exercise\\Dem\\srtm_38_04.tif")
+r3 <- raster(".\\Exercise\\Dem\\srtm_39_03.tif")
+r4 <- raster(".\\Exercise\\Dem\\srtm_39_04.tif")
+
+#merge the blocks
+r_tot <- merge(r1,r2,r3,r4)
+plot(r_tot)
+plot(extent(r_tot))
+```
+  
+The clip function saw in QGIS is equivalent to `crop()` in the raster package. This command returns a subset of the raster by a specified extent. So to speak, it takes the extent of th object you want ot use to clip the raster and execute the `crop()` command.  
+`mask()` instead, specifically create a new raster object carved out from the border of the 'mask' layer.  
+
+```{r,fig.cap=c("Fig.19 Difference between cropped and masked maps")}
+#crop,mask the raster with shape file
+veneto <- italy %>% filter(.,NAME_1 == "Veneto")
+r_crop <- crop(r_tot,veneto)
+r_mask <- raster::mask(r_crop,veneto)
+par(mfrow=c(1,2))
+plot(r_crop)
+plot(r_mask)
+```
+  
+Raster object are grids with values in their cells, thus, they can be seen as large matrix and as such they can be manipulated like you would with normal matrix, by indexing.  
+Let's assume I want to filter some of the data in the raster. I would like to replace depression points of the map (elevation < 0 m a.s.l.) with normally randomly distributed points with mean -500 and standard deviation 2.
+```{r,fig.cap=c("Fig.20 Comparison between unfiltered map and map with altered pixels","Fig.21 Zoomed in raster map playing with the extent of the map")}
+#filter values of the data
+r_fill <- r_mask 
+r_fill[ r_fill < 0] <- rnorm(n = length(r_fill[ r_fill < 0]),mean = -500,sd = 2)
+plot(r_mask, col=terrain.colors(5))
+plot(r_fill, col=terrain.colors(5))
+#play with extent
+plot(r_fill,xlim=c(12,12.5),ylim=c(45.25,45.5))
+```
+  
+Here I crop the map to a fixed extent rather than to a layer data.  
+
+```{r, fig.cap=c("Fig.22 Map cropped to a given extent with the addition of a customized point")}
+r_ven <- crop(r_fill,extent(c(12,12.5,45.15,45.5)))
+plot(r_ven)
+points(12.34629,45.46773,pch=19,col="blue",cex = 1)
+```
+  
+Below some useful functions usable to retrieve informations about the raster: 
+
+* `click()`: allows you to obtain information from raster by clicking directly on the map,`n()` is the number of click you might want to use
+* `cellFromXY`,`xyFromCell`: this family of functions makes it possible to information from a cell specifying the raster and the coordinates or viceversa expliciting the number of the cell getting back the coordinates and the cell values  
+
+```{r, eval=FALSE}
+#click
+click(r_ven,n=1,xy=TRUE,cell=TRUE)
+cellFromXY(r_ven,c(12.22,45.36667))
+xyFromCell(r_ven,95665)
+```
+  
+`extract` comes very handy wen you wanto to obtain values from a raster at the location of other spatial data. You can fed to the function coordinates (points), lines, polygons or an Extent (rectangle) object.  
+
+```{r}
+#extract value of a pixel
+raster::extract(r_fill,y=cap %>% st_transform(.,4326) %>% filter(.,cod_reg == 5) %>% st_centroid() %>% st_coordinates())
+```
+
+The function `stack()` returns a collection of raster layer with same spatial extent and resolution. For example can be used to put several flood hazard map, with different return period in the same object. Here, I'm going to stack together the original map of Veneto with the map of Veneto where the depression point are replaced by randomly distributed points.
+
+```{r, fig.cap="Fig.23 Rasterstack object with 2 layers"}
+#Use of stack
+r_stack <- stack(r_mask,r_fill)
+plot(r_stack)
+```
+  
+Like any other type of data, raster can be written to local memory with `writeRaster()` passing as necessary arguments the name of the object and the name of the file with the extension.
+```{r, eval = FALSE}
+#writeraster
+writeRaster(r_ven,"raster venezia 90m.tif",overwrite=TRUE)
+writeRaster(r_tot,".\\Exercise\\raster 90m.tif",overwrite=TRUE)
+
+```
+
+# References
+
+[sf tutorial](https://r-spatial.github.io/sf/articles/sf1.html)
+  
+[Raster vignettes](rspatial.org/raster/pkg/1-introduction.html)
